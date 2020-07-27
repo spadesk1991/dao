@@ -9,36 +9,49 @@ import (
 
 var rdb *redis.Client
 
-type config struct {
+type options struct {
 	addr string
 	pwd  string
 	db   int
 }
 
-func DefaultConfig() *config {
-	return &config{}
+type Option func(*options)
+
+func newOptions(opts ...Option) options {
+	opt := options{}
+	for _, o := range opts {
+		o(&opt)
+	}
+	return opt
 }
 
-func (c *config) Addr(addr string) *config {
-	c.addr = addr
-	return c
+func Addr(addr string) Option {
+	return func(o *options) {
+		o.addr = addr
+	}
 }
 
-func (c *config) PWD(pwd string) *config {
-	c.pwd = pwd
-	return c
+func PWD(pwd string) Option {
+	return func(o *options) {
+		o.pwd = pwd
+	}
 }
 
-func (c *config) DB(db int) *config {
-	c.db = db
-	return c
+func DB(db int) Option {
+	return func(o *options) {
+		o.db = db
+	}
 }
 
-func (c *config) Dial() {
+func NewRedisOptions(opts ...Option) options {
+	return newOptions(opts...)
+}
+
+func (o options) Dial() {
 	rdb = redis.NewClient(&redis.Options{
-		Addr:     c.addr,
-		Password: c.pwd, // no password set
-		DB:       c.db,  // use default DB
+		Addr:     o.addr,
+		Password: o.pwd, // no password set
+		DB:       o.db,  // use default DB
 	})
 	fmt.Println(rdb.Ping(context.TODO()))
 }

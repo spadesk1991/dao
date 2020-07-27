@@ -1,60 +1,79 @@
 package mongo
 
 import (
+	"bytes"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/jinzhu/inflection"
+
+	"gopkg.in/mgo.v2/bson"
 
 	"gopkg.in/mgo.v2"
 )
 
 var s *mgo.Session
-var cfg *config
+var o *options
 
-const mongodb = "mws"
-
-type config struct {
+type options struct {
 	url     string
 	db      string
 	mode    mgo.Mode
 	refresh bool
 }
 
-func DefaultConfig() *config {
-	cfg = &config{
+type Option func(*options)
+
+func newOptions(opts ...Option) *options {
+	o = &options{
+		url:     "mongodb://localhost:27017/admin",
+		db:      "admin",
 		mode:    mgo.Monotonic,
 		refresh: true,
 	}
-	return cfg
+	for _, opt := range opts {
+		opt(o)
+	}
+	return o
 }
 
-func (c *config) Url(str string) *config {
-	c.url = str
-	return c
+func NewMongoOptions(opts ...Option) *options {
+	return newOptions(opts...)
 }
 
-func (c *config) DB(db string) *config {
-	c.db = db
-	return c
+func Url(str string) Option {
+	return func(o2 *options) {
+		o2.url = str
+	}
 }
 
-func (c *config) Mode(m mgo.Mode) *config {
-	c.mode = m
-	return c
+func DB(db string) Option {
+	return func(o2 *options) {
+		o2.db = db
+	}
 }
 
-func (c *config) Refresh(b bool) *config {
-	c.refresh = b
-	return c
+func Mode(m mgo.Mode) Option {
+	return func(o2 *options) {
+		o2.mode = m
+	}
 }
 
-func (c *config) Dial() {
+func Refresh(b bool) Option {
+	return func(o2 *options) {
+		o2.refresh = b
+	}
+}
+
+func (o *options) Dial() {
 	var err error
-	s, err = mgo.Dial(c.url)
+	s, err = mgo.Dial(o.url)
 	if err != nil {
 		panic(err)
 	}
-	s.SetMode(c.mode, c.refresh)
+	s.SetMode(o.mode, o.refresh)
 }
 
 type myC struct {
@@ -63,19 +82,26 @@ type myC struct {
 }
 
 func getModelName(m interface{}) string {
-	v := reflect.ValueOf(m)
-	ss := strings.Split(v.String(), ".")
-	return ss[len(ss)-1]
+	t := reflect.TypeOf(m)
+	return inflection.Plural(defaultName(t.Name()))
 }
 func GetDB() (*mgo.Session, *mgo.Database) {
 	ms := s.Copy()
-	return ms, ms.DB(mongodb)
+	return ms, ms.DB(o.db)
+}
+
+func Do(fn func(db *mgo.Database) error) (err error) {
+	ms := s.Copy()
+	defer ms.Close()
+
+	db := ms.DB(o.db)
+	return fn(db)
 }
 
 func Model(m interface{}) *myC {
 	name := getModelName(m)
 	ms := s.Copy()
-	c := ms.DB(cfg.db).C(name)
+	c := ms.DB(o.db).C(name)
 	return &myC{
 		Session:    ms,
 		Collection: c,
@@ -221,7 +247,7 @@ func (q *myQuery) Sort(fields ...string) *myQuery {
 
 func (q *myQuery) Explain(result interface{}) error {
 	defer q.Session.Close()
-	return q.Explain(result)
+	return q.Query.Explain(&result)
 }
 
 func (q *myQuery) Hint(indexKey ...string) *myQuery {
@@ -256,12 +282,34 @@ func (q *myQuery) LogReplay() *myQuery {
 
 func (q *myQuery) One(result interface{}) (err error) {
 	defer q.Session.Close()
-	return q.Query.One(&result)
+	data := bson.M{}
+	if err = q.Query.One(&data); err != nil {
+		return
+	}
+	bt, err := json.Marshal(&data)
+	if err != nil {
+		return
+	}
+	if err = json.Unmarshal(bt, result); err != nil {
+		return
+	}
+	return
 }
 
-func (q *myQuery) All(result interface{}) error {
+func (q *myQuery) All(result interface{}) (err error) {
 	defer q.Session.Close()
-	return q.Query.All(result)
+	data := make([]bson.M, 0)
+	if err = q.Query.All(&data); err != nil {
+		return
+	}
+	bt, err := json.Marshal(&data)
+	if err != nil {
+		return
+	}
+	if err = json.Unmarshal(bt, result); err != nil {
+		return
+	}
+	return
 }
 
 func (q *myQuery) Count() (n int, err error) {
@@ -288,154 +336,52 @@ func (q *myQuery) Apply(change mgo.Change, result interface{}) (info *mgo.Change
 	return q.Query.Apply(change, result)
 }
 
-//func Count(collection string, query interface{}) (int, error) {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	return c.Find(query).Count()
-//}
-//
-//func Insert(collection string, docs ...interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	return c.Insert(docs...)
-//}
-//
-//func FindOne(collection string, query, selector, result interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	return c.Find(query).Select(selector).One(result)
-//}
-//
-//func FindAll(collection string, query, selector, result interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	return c.Find(query).Select(selector).All(result)
-//}
-//
-//func FindPage(collection string, page, limit int, query, selector, result interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	return c.Find(query).Select(selector).Skip((page - 1) * limit).Limit(limit).All(result)
-//}
-//
-//func FindIter(collection string, query interface{}) *mgo.Iter {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	return c.Find(query).Iter()
-//}
-//
-//func Update(collection string, selector, update interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	return c.Update(selector, update)
-//}
-//
-//func Upsert(collection string, selector, update interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	_, err := c.Upsert(selector, update)
-//	return err
-//}
-//
-//func UpdateAll(collection string, selector, update interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	_, err := c.UpdateAll(selector, update)
-//	return err
-//}
-//
-//func Remove(collection string, selector interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	return c.Remove(selector)
-//}
-//
-//func RemoveAll(collection string, selector interface{}) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	_, err := c.RemoveAll(selector)
-//	return err
-//}
-//
-////insert one or multi documents
-//func BulkInsert(collection string, docs ...interface{}) (*mgo.BulkResult, error) {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	bulk := c.Bulk()
-//	bulk.Insert(docs...)
-//	return bulk.Run()
-//}
-//
-//func BulkRemove(collection string, selector ...interface{}) (*mgo.BulkResult, error) {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//
-//	bulk := c.Bulk()
-//	bulk.Remove(selector...)
-//	return bulk.Run()
-//}
-//
-//func BulkRemoveAll(collection string, selector ...interface{}) (*mgo.BulkResult, error) {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	bulk := c.Bulk()
-//	bulk.RemoveAll(selector...)
-//	return bulk.Run()
-//}
-//
-//func BulkUpdate(collection string, pairs ...interface{}) (*mgo.BulkResult, error) {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	bulk := c.Bulk()
-//	bulk.Update(pairs...)
-//	return bulk.Run()
-//}
-//
-//func BulkUpdateAll(collection string, pairs ...interface{}) (*mgo.BulkResult, error) {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	bulk := c.Bulk()
-//	bulk.UpdateAll(pairs...)
-//	return bulk.Run()
-//}
-//
-//func BulkUpsert(collection string, pairs ...interface{}) (*mgo.BulkResult, error) {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	bulk := c.Bulk()
-//	bulk.Upsert(pairs...)
-//	return bulk.Run()
-//}
-//
-//func PipeAll(collection string, pipeline, result interface{}, allowDiskUse bool) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	var pipe *mgo.Pipe
-//	if allowDiskUse {
-//		pipe = c.Pipe(pipeline).AllowDiskUse()
-//	} else {
-//		pipe = c.Pipe(pipeline)
-//	}
-//	return pipe.All(result)
-//}
-//
-//func PipeOne(collection string, pipeline, result interface{}, allowDiskUse bool) error {
-//	ms, c := connect(collection)
-//	defer ms.Close()
-//	var pipe *mgo.Pipe
-//	if allowDiskUse {
-//		pipe = c.Pipe(pipeline).AllowDiskUse()
-//	} else {
-//		pipe = c.Pipe(pipeline)
-//	}
-//	return pipe.One(result)
-//}
+func defaultName(name string) string {
+	const (
+		lower = false
+		upper = true
+	)
+
+	if name == "" {
+		return ""
+	}
+
+	var (
+		value                                    = name
+		buf                                      = bytes.NewBufferString("")
+		lastCase, currCase, nextCase, nextNumber bool
+	)
+
+	for i, v := range value[:len(value)-1] {
+		nextCase = bool(value[i+1] >= 'A' && value[i+1] <= 'Z')
+		nextNumber = bool(value[i+1] >= '0' && value[i+1] <= '9')
+
+		if i > 0 {
+			if currCase == upper {
+				if lastCase == upper && (nextCase == upper || nextNumber == upper) {
+					buf.WriteRune(v)
+				} else {
+					if value[i-1] != '_' && value[i+1] != '_' {
+						buf.WriteRune('_')
+					}
+					buf.WriteRune(v)
+				}
+			} else {
+				buf.WriteRune(v)
+				if i == len(value)-2 && (nextCase == upper && nextNumber == lower) {
+					buf.WriteRune('_')
+				}
+			}
+		} else {
+			currCase = upper
+			buf.WriteRune(v)
+		}
+		lastCase = currCase
+		currCase = nextCase
+	}
+
+	buf.WriteByte(value[len(value)-1])
+
+	s := strings.ToLower(buf.String())
+	return s
+}

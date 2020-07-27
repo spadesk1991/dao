@@ -10,7 +10,7 @@ import (
 
 var db *gorm.DB
 
-type config struct {
+type options struct {
 	url          string
 	debug        bool
 	maxIdleConns int
@@ -18,58 +18,72 @@ type config struct {
 	logger       logger
 }
 
-type logger interface {
-	Print(v ...interface{})
+type Option func(*options)
+
+func NewMysqlOptions(opts ...Option) options {
+	return newOptions(opts...)
 }
 
-func DefaultConfig() *config {
-	return &config{
+func newOptions(opts ...Option) options {
+	o := options{
 		maxIdleConns: -1,
 		maxOpenConns: -1,
 		logger:       log.New(os.Stdout, "\r\n", log.LstdFlags),
 	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
 }
 
-func (c *config) Url(str string) *config {
-	c.url = str
-	return c
+type logger interface {
+	Print(v ...interface{})
 }
 
-func (c *config) Debug() *config {
-	c.debug = true
-	return c
+func Url(str string) Option {
+	return func(o *options) {
+		o.url = str
+	}
 }
 
-func (c *config) MaxIdleConns(n int) *config {
-	c.maxIdleConns = n
-	return c
+func Debug() Option {
+	return func(o *options) {
+		o.debug = true
+	}
 }
 
-func (c *config) MaxOpenConns(n int) *config {
-	c.maxOpenConns = n
-	return c
+func MaxIdleConns(n int) Option {
+	return func(o *options) {
+		o.maxIdleConns = n
+	}
 }
 
-func (c *config) SetLogOut(l logger) *config {
-	c.logger = l
-	return c
+func MaxOpenConns(n int) Option {
+	return func(o *options) {
+		o.maxOpenConns = n
+	}
 }
 
-func (c *config) Dial() {
+func SetLog(l logger) Option {
+	return func(o *options) {
+		o.logger = l
+	}
+}
+
+func (o *options) Dial() {
 	var err error
-	db, err = gorm.Open("mysql", c.url)
+	db, err = gorm.Open("mysql", o.url)
 	if err != nil {
 		panic(err)
 	}
-	if c.debug { // 生产环境关闭log
+	if o.debug { // 生产环境关闭log
 		db.LogMode(true)
 	}
-	db.SetLogger(c.logger)
-	db.DB().SetMaxIdleConns(c.maxIdleConns)
-	db.DB().SetMaxOpenConns(c.maxOpenConns)
+	db.SetLogger(o.logger)
+	db.DB().SetMaxIdleConns(o.maxIdleConns)
+	db.DB().SetMaxOpenConns(o.maxOpenConns)
 }
 
 func GetDB() *gorm.DB {
-
 	return db
 }
