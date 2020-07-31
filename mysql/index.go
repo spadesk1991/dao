@@ -20,18 +20,18 @@ type options struct {
 
 type Option func(*options)
 
-func NewMysqlOptions(opts ...Option) options {
+func NewMysqlOptions(opts ...Option) *options {
 	return newOptions(opts...)
 }
 
-func newOptions(opts ...Option) options {
-	o := options{
+func newOptions(opts ...Option) *options {
+	o := &options{
 		maxIdleConns: -1,
 		maxOpenConns: -1,
 		logger:       log.New(os.Stdout, "\r\n", log.LstdFlags),
 	}
 	for _, opt := range opts {
-		opt(&o)
+		opt(o)
 	}
 	return o
 }
