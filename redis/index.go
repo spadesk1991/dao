@@ -47,13 +47,15 @@ func NewRedisOptions(opts ...Option) options {
 	return newOptions(opts...)
 }
 
-func (o options) Dial() {
-	rdb = redis.NewClient(&redis.Options{
+func (o options) Dial() *redis.Client {
+	db := redis.NewClient(&redis.Options{
 		Addr:     o.addr,
 		Password: o.pwd, // no password set
 		DB:       o.db,  // use default DB
 	})
-	fmt.Println(rdb.Ping(context.TODO()))
+	fmt.Println(db.Ping(context.TODO()))
+	rdb = db // 全局db
+	return db
 }
 
 func GetDB() *redis.Client {

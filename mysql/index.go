@@ -70,18 +70,19 @@ func SetLog(l logger) Option {
 	}
 }
 
-func (o *options) Dial() {
-	var err error
-	db, err = gorm.Open("mysql", o.url)
+func (o *options) Dial() *gorm.DB {
+	newdb, err := gorm.Open("mysql", o.url)
 	if err != nil {
 		panic(err)
 	}
 	if o.debug { // 生产环境关闭log
-		db.LogMode(true)
+		newdb.LogMode(true)
 	}
-	db.SetLogger(o.logger)
-	db.DB().SetMaxIdleConns(o.maxIdleConns)
-	db.DB().SetMaxOpenConns(o.maxOpenConns)
+	newdb.SetLogger(o.logger)
+	newdb.DB().SetMaxIdleConns(o.maxIdleConns)
+	newdb.DB().SetMaxOpenConns(o.maxOpenConns)
+	db = newdb // 赋值全局db对象
+	return newdb
 }
 
 func GetDB() *gorm.DB {
